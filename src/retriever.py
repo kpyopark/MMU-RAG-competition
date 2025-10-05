@@ -102,10 +102,10 @@ def retrieve(
             chunks.extend(doc_chunks)
         texts = [chunk['text'] for chunk in chunks]
         try:
-            res = call_rerank_api(texts, port=3001)
-            logger.info(f"Results from rerank API: {res}")
-            # TODO: process results to return top_k documents
-            return chunks
+            results = call_rerank_api(texts, port=3001)
+            idxs = [x['index'] for x in results]
+            reordered = [chunks[i] for i in idxs]
+            return reordered[:top_k]
         except Exception as e:
             logger.error(f"Error calling rerank API: {e}")
             return chunks
