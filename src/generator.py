@@ -1,8 +1,7 @@
 import os
 from openai import OpenAI
-from typing import Generator
 from dotenv import load_dotenv
-
+from loguru import logger
 load_dotenv()
 
 
@@ -22,8 +21,8 @@ def get_openrouter_client():
 
 openrouter_client = get_openrouter_client()
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "x-ai/grok-4-fast:free")
+# https://openrouter.ai/models?max_price=0
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")  # 'ollama' or 'openrouter'
 
 
@@ -37,18 +36,19 @@ def get_llm_response(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        verbosity="high",
     )
     content = resp.choices[0].message.content
-    return content if content else ""
+    content = content if content else ""
+    logger.debug(f"Prompt[:200]: {prompt[:200]}\nResponse[:200]: {content[:200]}")
+    return content
 
 
 def self_evolve(
     initial_prompt: str,
     system_prompt: str,
-    num_variants: int = 3,
-    evolution_steps: int = 1,
-) -> str:
+    num_variants: int,
+    evolution_steps: int,
+) -> tuple[str, list[str]]:
     """
     Implements the Component-wise Self-Evolution algorithm from the TTD-DR paper.
     It generates multiple variants, critiques and refines them, then merges them.
@@ -58,7 +58,6 @@ def self_evolve(
         get_llm_response(initial_prompt, system_prompt) for _ in range(num_variants)
     ]
 
-    # 2. Environmental Feedback & 3. Revision Step
     for i in range(evolution_steps):
         evolved_variants = []
         for variant in variants:
@@ -107,4 +106,4 @@ def self_evolve(
     Produce the final, merged text.
     """
     final_merged_text = get_llm_response(merge_prompt, system_prompt)
-    return final_merged_text
+    return final_merged_text, variants

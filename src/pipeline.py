@@ -1,10 +1,13 @@
-# FILE: Text-to-Text/src/pipeline.py
 from typing import Callable, Dict, Any, List
 from .retriever import retrieve_fineweb
 from .generator import get_llm_response, self_evolve
+from loguru import logger
 
-# --- PROMPT TEMPLATES ---
-# These templates guide the LLM at each stage of the TTD-DR process.
+
+NUM_VARIANTS = 2  # 2
+EVOLUTION_STEPS = 1
+MAX_SEARCH_ITERATIONS = 3  # 3
+SEARCH_TOP_K = 5
 
 PLAN_PROMPT = """
 Based on the user's query, create a structured research plan.
@@ -129,25 +132,23 @@ class TTD_DR_Pipeline:
         }
         self.callback(data)
 
-    def run(self, query: str, max_iterations: int = 3):
-        """Executes the complete TTD-DR pipeline."""
-
-        # --- STAGE 1: Research Plan Generation ---
+    def generate_research_plan(self, query: str):
+        """Generate initial research plan based on user query."""
         step_desc = "Generating initial research plan..."
         self._send_update(step_desc)
         plan_prompt = PLAN_PROMPT.format(query=query)
         self.plan = self_evolve(
             plan_prompt,
             "You are a strategic research planner.",
-            num_variants=2,
-            evolution_steps=1,
+            num_variants=NUM_VARIANTS,
+            evolution_steps=EVOLUTION_STEPS,
         )
         self.q_a_history.append({"description": f"**Research Plan:**\n{self.plan}"})
-        self._send_update("")  # Update with plan in history
+        self._send_update("")
 
-        # --- Report-level Denoising: Initial Noisy Draft ---
-        step_desc = "Generating initial draft from internal knowledge..."
-        self._send_update(step_desc)
+    def generate_initial_draft(self, query: str):
+        """Generate initial draft from internal knowledge."""
+        self._send_update("Generating initial draft from internal knowledge...")
         draft_prompt = INITIAL_DRAFT_PROMPT.format(query=query)
         self.draft = get_llm_response(draft_prompt)
         self.q_a_history.append(
@@ -155,74 +156,89 @@ class TTD_DR_Pipeline:
         )
         self._send_update("")
 
-        # --- STAGE 2: Iterative Search and Synthesis (Denoising Loop) ---
+    def generate_search_query(self, query: str, iteration: int, max_iterations: int):
+        """Generate next search query for the current iteration."""
+        step_desc = f"**Iteration {iteration + 1}/{max_iterations}:** Generating next search query..."
+        self._send_update(step_desc)
+        history_str = "\n".join(
+            [
+                f"Q: {item['query']}\nA: {item['answer']}"
+                for item in self.q_a_history
+                if "query" in item
+            ]
+        )
+        search_gen_prompt = SEARCH_QUERY_GEN_PROMPT.format(
+            query=query, plan=self.plan, draft=self.draft, history=history_str
+        )
+        search_query = get_llm_response(search_gen_prompt)
+        self._send_update(f"**Searching for:** `{search_query}`")
+        return search_query
+
+    def retrieve_and_synthesize_documents(self, search_query: str):
+        documents = retrieve_fineweb(search_query, top_k=SEARCH_TOP_K)
+        # TODO: don't cut off content and use rag instead
+        doc_str = "\n\n".join(
+            [
+                f"URL: {doc['url']}\nContent: {doc['content'][:500]}..."
+                for doc in documents
+            ]
+        )
+        citations = [doc["url"] for doc in documents]
+        self._send_update(
+            f"**Found {len(documents)} documents.** Synthesizing answer...",
+            citations=citations,
+        )
+
+        synth_prompt = ANSWER_SYNTHESIS_PROMPT.format(
+            search_query=search_query, documents=doc_str
+        )
+        synthesized_answer, variants = self_evolve(
+            synth_prompt,
+            "You are a research analyst.",
+            num_variants=NUM_VARIANTS,
+            evolution_steps=EVOLUTION_STEPS,
+        )
+        self.q_a_history.append(
+            {
+                "description": f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}",
+                "query": search_query,
+                "answer": synthesized_answer,
+            }
+        )
+        self._send_update("")
+        return synthesized_answer
+
+    def revise_draft_with_new_info(
+        self, query: str, search_query: str, synthesized_answer: str, iteration: int
+    ):
+        """Revise the current draft with new synthesized information."""
+        step_desc = "Revising draft with new information..."
+        self._send_update(step_desc)
+        revise_prompt = DRAFT_REVISION_PROMPT.format(
+            query=query,
+            draft=self.draft,
+            search_query=search_query,
+            new_answer=synthesized_answer,
+        )
+        self.draft = get_llm_response(revise_prompt)
+        self.q_a_history.append(
+            {
+                "description": f"**Revised Draft {iteration + 1}:**\n{self.draft[:200]}..."
+            }
+        )
+        self._send_update("")
+
+    def perform_iterative_search_and_synthesis(self, query: str, max_iterations: int):
+        """Perform iterative search and synthesis loop to refine the draft."""
         for i in range(max_iterations):
-            history_str = "\n".join(
-                [
-                    f"Q: {item['query']}\nA: {item['answer']}"
-                    for item in self.q_a_history
-                    if "query" in item
-                ]
-            )
+            search_query = self.generate_search_query(query, i, max_iterations)
+            if search_query is None or search_query.strip() == "":
+                logger.warning("No valid search query generated, stopping iterations.")
+                continue
+            synthesized_answer = self.retrieve_and_synthesize_documents(search_query)
+            self.revise_draft_with_new_info(query, search_query, synthesized_answer, i)
 
-            # 2a: Generate Search Query
-            step_desc = f"**Iteration {i + 1}/{max_iterations}:** Generating next search query..."
-            self._send_update(step_desc)
-            search_gen_prompt = SEARCH_QUERY_GEN_PROMPT.format(
-                query=query, plan=self.plan, draft=self.draft, history=history_str
-            )
-            search_query = get_llm_response(search_gen_prompt)
-            self._send_update(f"**Searching for:** `{search_query}`")
-
-            # 2b: Retrieve Documents
-            documents = retrieve_fineweb(search_query, top_k=3)
-            doc_str = "\n\n".join(
-                [
-                    f"URL: {doc['url']}\nContent: {doc['content'][:500]}..."
-                    for doc in documents
-                ]
-            )
-            citations = [doc["url"] for doc in documents]
-            self._send_update(
-                f"**Found {len(documents)} documents.** Synthesizing answer...",
-                citations=citations,
-            )
-
-            # 2b: Synthesize Answer
-            synth_prompt = ANSWER_SYNTHESIS_PROMPT.format(
-                search_query=search_query, documents=doc_str
-            )
-            synthesized_answer = self_evolve(
-                synth_prompt,
-                "You are a research analyst.",
-                num_variants=2,
-                evolution_steps=1,
-            )
-            self.q_a_history.append(
-                {
-                    "description": f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}",
-                    "query": search_query,
-                    "answer": synthesized_answer,
-                }
-            )
-            self._send_update("")
-
-            # 2c: Denoise/Revise Draft
-            step_desc = "Revising draft with new information..."
-            self._send_update(step_desc)
-            revise_prompt = DRAFT_REVISION_PROMPT.format(
-                query=query,
-                draft=self.draft,
-                search_query=search_query,
-                new_answer=synthesized_answer,
-            )
-            self.draft = get_llm_response(revise_prompt)
-            self.q_a_history.append(
-                {"description": f"**Revised Draft {i + 1}:**\n{self.draft[:200]}..."}
-            )
-            self._send_update("")
-
-        # --- STAGE 3: Final Report Generation ---
+    def generate_final_report(self, query: str):
         self._send_update("All research steps complete. Generating final report...")
         history_str = "\n\n".join(
             [
@@ -235,16 +251,19 @@ class TTD_DR_Pipeline:
             query=query, plan=self.plan, draft=self.draft, history=history_str
         )
 
-        # Generate the final report
         final_report_content = get_llm_response(final_prompt)
-
-        # Send completion signal
         self._send_update(
             "Final report generated.",
             is_intermediate=False,
             final_report_chunk=final_report_content,
             complete=True,
         )
+
+    def run(self, query: str, max_iterations: int = MAX_SEARCH_ITERATIONS):
+        self.generate_research_plan(query)
+        self.generate_initial_draft(query)
+        self.perform_iterative_search_and_synthesis(query, max_iterations)
+        self.generate_final_report(query)
 
 
 def run_rag_dynamic(query: str, callback: Callable[[Dict[str, Any]], None]):

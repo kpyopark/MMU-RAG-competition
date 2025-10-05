@@ -61,3 +61,11 @@ python local_test.py --base-url http://localhost:5053 \
 - **Input**: `{"query": "string", "iid": "string"}`
 - **Output**: `{"query_id": "string", "generated_response": "string"}`
 - **File Output**: Must generate `result.jsonl` with all responses
+
+### Submission
+
+AWS CLI Command for pushing to ECR repository:
+
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 970547356481.dkr.ecr.us-east-1.amazonaws.com
+```
