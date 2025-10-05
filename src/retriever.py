@@ -3,7 +3,46 @@ import json
 import base64
 import requests
 from typing import List, Dict, Any
+from loguru import logger
+from .chunker import chunk_document
 
+def launch_rerank_server():
+    from sglang.test.doc_patch import launch_server_cmd
+    from sglang.utils import wait_for_server
+
+    # This is equivalent to running the following command in your terminal
+    # python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --host 0.0.0.0
+    cmd = """python3 -m sglang.launch_server \
+  --model-path BAAI/bge-reranker-v2-m3 \
+  --host 0.0.0.0 \
+  --disable-radix-cache \
+  --chunked-prefill-size -1 \
+  --attention-backend triton \
+  --is-embedding"""
+    server_process, port = launch_server_cmd(cmd)
+
+    wait_for_server(f"http://localhost:{port}", timeout=120)
+    return server_process, port
+
+
+def call_rerank_api(texts: List[str], port: int=3001) -> List[Dict[str, Any]]:
+    url = f"http://127.0.0.1:{port}/v1/rerank"
+
+    payload = {
+        # TODO: use qwen 3 model for better performance
+        "model": "BAAI/bge-reranker-v2-m3",
+        "query": "what is panda?",
+        "documents": texts,
+    }
+
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        raise Exception(f"Rerank API error {response.status_code}: {response.text}")
+    response_json = response.json()
+
+    for item in response_json:
+        print(f"Score: {item['score']:.2f} - Document: '{item['document']}'")
+    return response_json
 
 def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """
@@ -38,20 +77,12 @@ def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         documents = []
         for doc in result.get("results", []):
             try:
-                # Decode base64 JSON document
                 decoded_data = base64.b64decode(doc).decode("utf-8")
                 document = json.loads(decoded_data)
-
-                # Extract relevant information
-                doc_info = {
-                    "url": document.get("url", ""),
-                    "content": document.get("text", "")[:1000],  # Limit content length
-                    "title": document.get("title", ""),
-                }
-                documents.append(doc_info)
+                documents.append(document)
 
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as e:
-                print(f"Error processing document: {e}")
+                logger.error(f"Error processing document: {e}")
                 continue
 
         return documents
@@ -61,28 +92,24 @@ def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
 
 def retrieve(
-    query: str, index_path: str | None = None, top_k: int = 5
+    query: str, top_k: int = 5
 ) -> List[Dict[str, Any]]:
-    """
-    Retrieve the most relevant documents for a given query using FineWeb Search API.
-
-    Args:
-        query: User query to search for
-        index_path: Not used for FineWeb search (kept for compatibility)
-        top_k: Number of top documents to retrieve
-
-    Returns:
-        List of document dictionaries with 'url' and 'content' keys
-    """
-    # TODO: Implement retrieval logic
-    # - Load the saved FAISS index
-    # - Generate query embedding using same model as indexing
-    # - Search index for top_k most similar chunks
-    # - Return retrieved text chunks for generation
-    # cohere rerank, graph retreival
     try:
-        return retrieve_fineweb(query, top_k)
+        docs = retrieve_fineweb(query, top_k)
+        chunks = []
+        for doc in docs:
+            doc_chunks = chunk_document(doc)
+            chunks.extend(doc_chunks)
+        texts = [chunk['text'] for chunk in chunks]
+        try:
+            res = call_rerank_api(texts, port=3001)
+            logger.info(f"Results from rerank API: {res}")
+            # TODO: process results to return top_k documents
+            return chunks
+        except Exception as e:
+            logger.error(f"Error calling rerank API: {e}")
+            return chunks
+
     except Exception as e:
-        print(f"Error in retrieve: {e}")
-        # Return empty list as fallback
+        logger.error(f"Error in retrieve: {e}")
         return []

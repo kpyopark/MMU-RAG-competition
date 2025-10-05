@@ -44,5 +44,4 @@ USER nonroot
 # Use `/app` as the working directory
 WORKDIR /app
 
-# Run the FastAPI application by default
-CMD ["fastapi", "run", "--host", "0.0.0.0", "--port", "5053", "--reload", "src"]
+CMD ["bash", "start.sh"]

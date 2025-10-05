@@ -1,5 +1,5 @@
 from typing import Callable, Dict, Any, List
-from .retriever import retrieve_fineweb
+from .retriever import retrieve
 from .generator import get_llm_response, self_evolve
 from loguru import logger
 
@@ -7,7 +7,7 @@ from loguru import logger
 NUM_VARIANTS = 2  # 2
 EVOLUTION_STEPS = 1
 MAX_SEARCH_ITERATIONS = 3  # 3
-SEARCH_TOP_K = 5
+SEARCH_TOP_K = 10
 
 PLAN_PROMPT = """
 Based on the user's query, create a structured research plan.
@@ -54,7 +54,7 @@ Focus only on the information present in the documents. Cite which document urls
 **Search Query:**
 {search_query}
 
-**Retrieved Documents:**
+**Retrieved Document Chunks:**
 {documents}
 
 Synthesized Answer:
@@ -98,7 +98,7 @@ Use all the provided information to construct a well-structured, coherent, and d
 **Full History of Questions and Synthesized Answers:**
 {history}
 
-Now, write the final, polished report.
+Now, write the final, polished report. Start with a "Final Answer:" short paragraph summarizing the key findings, followed by detailed sections below and citations where relevant.
 """
 
 
@@ -170,28 +170,29 @@ class TTD_DR_Pipeline:
         search_gen_prompt = SEARCH_QUERY_GEN_PROMPT.format(
             query=query, plan=self.plan, draft=self.draft, history=history_str
         )
+        # TODO: try to generate several queries and rank the results to save tokens
         search_query = get_llm_response(search_gen_prompt)
         self._send_update(f"**Searching for:** `{search_query}`")
         return search_query
 
     def retrieve_and_synthesize_documents(self, search_query: str):
-        documents = retrieve_fineweb(search_query, top_k=SEARCH_TOP_K)
-        # TODO: don't cut off content and use rag instead
+        chunks = retrieve(search_query, top_k=SEARCH_TOP_K)
         doc_str = "\n\n".join(
             [
-                f"URL: {doc['url']}\nContent: {doc['content'][:500]}..."
-                for doc in documents
+                f"ID: {doc['chunk_id']}\nText: {doc['text']}..."
+                for doc in chunks
             ]
         )
-        citations = [doc["url"] for doc in documents]
+        citations = [doc.get("url") for doc in chunks]
         self._send_update(
-            f"**Found {len(documents)} documents.** Synthesizing answer...",
+            f"**Found {len(chunks)} documents.** Synthesizing answer...",
             citations=citations,
         )
 
         synth_prompt = ANSWER_SYNTHESIS_PROMPT.format(
             search_query=search_query, documents=doc_str
         )
+        # TODO: log variants and use citations
         synthesized_answer, variants = self_evolve(
             synth_prompt,
             "You are a research analyst.",
