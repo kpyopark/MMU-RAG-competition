@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from loguru import logger
 from .chunker import chunk_document
 
+
 def launch_rerank_server():
     from sglang.test.doc_patch import launch_server_cmd
     from sglang.utils import wait_for_server
@@ -25,7 +26,7 @@ def launch_rerank_server():
     return server_process, port
 
 
-def call_rerank_api(texts: List[str], port: int=3001) -> List[Dict[str, Any]]:
+def call_rerank_api(texts: List[str], port: int = 3001) -> List[Dict[str, Any]]:
     url = f"http://127.0.0.1:{port}/v1/rerank"
 
     payload = {
@@ -43,6 +44,7 @@ def call_rerank_api(texts: List[str], port: int=3001) -> List[Dict[str, Any]]:
     for item in response_json:
         print(f"Score: {item['score']:.2f} - Document: '{item['document']}'")
     return response_json
+
 
 def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """
@@ -91,19 +93,17 @@ def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         raise Exception(f"Network error connecting to FineWeb API: {e}")
 
 
-def retrieve(
-    query: str, top_k: int = 5
-) -> List[Dict[str, Any]]:
+def retrieve(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     try:
         docs = retrieve_fineweb(query, top_k)
         chunks = []
         for doc in docs:
             doc_chunks = chunk_document(doc)
             chunks.extend(doc_chunks)
-        texts = [chunk['text'] for chunk in chunks]
+        texts = [chunk["text"] for chunk in chunks]
         try:
             results = call_rerank_api(texts, port=3001)
-            idxs = [x['index'] for x in results]
+            idxs = [x["index"] for x in results]
             reordered = [chunks[i] for i in idxs]
             return reordered[:top_k]
         except Exception as e:

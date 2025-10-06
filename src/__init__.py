@@ -1,78 +1,93 @@
-# FILE: Text-to-Text/api_server.py
-import os
-import sys
+import asyncio
+import contextlib
 import json
+from typing import Any, AsyncGenerator, Dict
+
 from dotenv import load_dotenv
-
-# Add src directory to path to import pipeline modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
-
-from fastapi import FastAPI, Request
-from typing import Dict, Any
-from src.pipeline import run_rag_dynamic, run_rag_static
+from fastapi import FastAPI, HTTPException
 from loguru import logger
+from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
-# Load environment variables from .env file
+from src.pipeline import run_rag_dynamic, run_rag_static
+
 load_dotenv()
 
 app = FastAPI(
     title="MMU-RAG TTD-DR Implementation",
-    description="An API server for the Test-Time Diffusion Deep Researcher.",
+    description="API server exposing static and streaming RAG endpoints.",
 )
 
 
+class EvaluateRequest(BaseModel):
+    query: str
+    iid: str
+
+
+class EvaluateResponse(BaseModel):
+    query_id: str
+    generated_response: str
+
+
+class RunRequest(BaseModel):
+    question: str
+
+
 @app.get("/health")
-def health_check():
-    """Health check endpoint."""
+def health_check() -> dict[str, str]:
+    """Lightweight health check endpoint."""
     return {"status": "ok"}
 
 
-@app.post("/evaluate")
-async def evaluate(request: Request):
-    """
-    Static evaluation endpoint.
-    Receives a query and iid, runs the full RAG pipeline, and returns the final response.
-    """
-    data = await request.json()
-    query = data.get("query")
-    iid = data.get("iid")
+@app.post("/evaluate", response_model=EvaluateResponse)
+async def evaluate_endpoint(payload: EvaluateRequest) -> EvaluateResponse:
+    """Static evaluation endpoint returning a single JSON response."""
+    try:
+        generated_response = await asyncio.to_thread(run_rag_static, payload.query)
+    except Exception as e:
+        logger.exception(f"Static evaluation failed {e}")
+        raise HTTPException(status_code=500, detail="Static evaluation failed")
 
-    if not query or not iid:
-        return {"error": "Missing 'query' or 'iid' in request."}, 400
-    logger.debug(f"query: {query}")
-    generated_response = run_rag_static(query)
-
-    return {
-        "query_id": iid,
-        "generated_response": generated_response,
-    }
+    return EvaluateResponse(query_id=payload.iid, generated_response=generated_response)
 
 
 @app.post("/run")
-async def run_endpoint(request: Request):
-    """
-    Dynamic evaluation endpoint.
-    Receives a question, runs the RAG pipeline, and returns the final response.
-    """
-    data = await request.json()
-    question = data.get("question")
+async def run_endpoint(payload: RunRequest) -> EventSourceResponse:
+    """Streaming endpoint that emits SSE updates for the research pipeline."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
 
-    if not question:
-        return {"error": "Missing 'question' in request."}, 400
+    def pipeline_callback(update: Dict[str, Any]) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, update)
 
-    # Run the pipeline and return the final result
-    generated_response = run_rag_static(question)
+    def run_pipeline() -> None:
+        try:
+            run_rag_dynamic(payload.question, pipeline_callback)
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - defensive: upstream services may fail
+            logger.exception("Dynamic pipeline failed")
+            error_payload = {"error": str(exc), "complete": True}
+            loop.call_soon_threadsafe(queue.put_nowait, error_payload)
 
-    return {
-        "question": question,
-        "generated_response": generated_response,
-    }
+    pipeline_task = asyncio.create_task(asyncio.to_thread(run_pipeline))
+
+    async def event_publisher() -> AsyncGenerator[Dict[str, str], None]:
+        try:
+            while True:
+                update = await queue.get()
+                payload = json.dumps(update)
+                yield {"data": payload}
+                if update.get("complete") is True:
+                    break
+        except asyncio.CancelledError:
+            pipeline_task.cancel()
+            raise
+        finally:
+            with contextlib.suppress(Exception):
+                await pipeline_task
+
+    return EventSourceResponse(event_publisher(), media_type="text/event-stream")
 
 
-if __name__ == "__main__":
-    import uvicorn
-
-    # To run: python Text-to-Text/api_server.py
-    # The competition might specify a different port, which can be changed here.
-    port = int(os.getenv("PORT", 5053))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+__all__ = ["app"]

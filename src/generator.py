@@ -2,6 +2,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from loguru import logger
+
 load_dotenv()
 
 
@@ -18,15 +19,19 @@ def get_openrouter_client():
         default_headers=headers if headers else None,
     )
 
+
 def get_sglang_client(port: int = 3002):
     return OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="None")
+
 
 client = get_openrouter_client()
 # client = get_sglang_client()
 
 # https://openrouter.ai/models?max_price=0
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")  # 'ollama' or 'openrouter'
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free"
+)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
 
 
 def get_llm_response(

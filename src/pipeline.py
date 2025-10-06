@@ -108,53 +108,56 @@ class TTD_DR_Pipeline:
         self.plan = ""
         self.draft = ""
         self.q_a_history: List[Dict[str, str]] = []
+        self.intermediate_log: List[str] = []
 
     def _send_update(
         self,
-        step_description: str,
+        step_description: str | None = None,
+        *,
         is_intermediate: bool = True,
-        final_report_chunk: str = "",
-        citations: List = [],
+        final_report_chunk: str | None = None,
+        citations: List[str] | None = None,
         complete: bool = False,
-    ):
+    ) -> None:
         """Helper to send updates through the callback."""
-        # Join all previous steps with the new one
-        all_steps = [s["description"] for s in self.q_a_history]
         if step_description:
-            all_steps.append(step_description)
+            self.intermediate_log.append(step_description)
 
-        data = {
-            "intermediate_steps": "|||---|||".join(all_steps),
+        steps_text = "|||---|||".join(self.intermediate_log)
+        data: Dict[str, Any] = {
+            "intermediate_steps": steps_text if steps_text else None,
             "final_report": final_report_chunk,
             "is_intermediate": is_intermediate,
-            "citations": citations,
             "complete": complete,
         }
+        if citations:
+            data["citations"] = citations
+
         self.callback(data)
 
     def generate_research_plan(self, query: str):
         """Generate initial research plan based on user query."""
-        step_desc = "Generating initial research plan..."
-        self._send_update(step_desc)
+        self._send_update("Generating initial research plan...")
         plan_prompt = PLAN_PROMPT.format(query=query)
-        self.plan = self_evolve(
+        plan_text, _ = self_evolve(
             plan_prompt,
             "You are a strategic research planner.",
             num_variants=NUM_VARIANTS,
             evolution_steps=EVOLUTION_STEPS,
         )
-        self.q_a_history.append({"description": f"**Research Plan:**\n{self.plan}"})
-        self._send_update("")
+        self.plan = plan_text
+        plan_desc = f"**Research Plan Generated:**\n{self.plan}"
+        self.q_a_history.append({"description": plan_desc})
+        self._send_update(plan_desc)
 
     def generate_initial_draft(self, query: str):
         """Generate initial draft from internal knowledge."""
         self._send_update("Generating initial draft from internal knowledge...")
         draft_prompt = INITIAL_DRAFT_PROMPT.format(query=query)
         self.draft = get_llm_response(draft_prompt)
-        self.q_a_history.append(
-            {"description": f"**Initial Draft:**\n{self.draft[:200]}..."}
-        )
-        self._send_update("")
+        draft_desc = f"**Initial Draft Created:**\n{self.draft[:200]}..."
+        self.q_a_history.append({"description": draft_desc})
+        self._send_update(draft_desc)
 
     def generate_search_query(self, query: str, iteration: int, max_iterations: int):
         """Generate next search query for the current iteration."""
@@ -178,15 +181,12 @@ class TTD_DR_Pipeline:
     def retrieve_and_synthesize_documents(self, search_query: str):
         chunks = retrieve(search_query, top_k=SEARCH_TOP_K)
         doc_str = "\n\n".join(
-            [
-                f"ID: {doc['chunk_id']}\nText: {doc['text']}..."
-                for doc in chunks
-            ]
+            [f"ID: {doc['chunk_id']}\nText: {doc['text']}..." for doc in chunks]
         )
-        citations = [doc.get("url") for doc in chunks]
+        citations = [doc["url"] for doc in chunks if doc.get("url") is not None]
         self._send_update(
             f"**Found {len(chunks)} documents.** Synthesizing answer...",
-            citations=citations,
+            citations=citations if citations else None,
         )
 
         synth_prompt = ANSWER_SYNTHESIS_PROMPT.format(
@@ -206,7 +206,9 @@ class TTD_DR_Pipeline:
                 "answer": synthesized_answer,
             }
         )
-        self._send_update("")
+        self._send_update(
+            f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}"
+        )
         return synthesized_answer
 
     def revise_draft_with_new_info(
@@ -222,12 +224,9 @@ class TTD_DR_Pipeline:
             new_answer=synthesized_answer,
         )
         self.draft = get_llm_response(revise_prompt)
-        self.q_a_history.append(
-            {
-                "description": f"**Revised Draft {iteration + 1}:**\n{self.draft[:200]}..."
-            }
-        )
-        self._send_update("")
+        revised_desc = f"**Revised Draft {iteration + 1}:**\n{self.draft[:200]}..."
+        self.q_a_history.append({"description": revised_desc})
+        self._send_update(revised_desc)
 
     def perform_iterative_search_and_synthesis(self, query: str, max_iterations: int):
         """Perform iterative search and synthesis loop to refine the draft."""
@@ -253,6 +252,12 @@ class TTD_DR_Pipeline:
         )
 
         final_report_content = get_llm_response(final_prompt)
+        self._send_update(
+            None,
+            is_intermediate=False,
+            final_report_chunk=final_report_content,
+            complete=False,
+        )
         self._send_update(
             "Final report generated.",
             is_intermediate=False,
@@ -281,7 +286,7 @@ def run_rag_static(query: str) -> str:
         nonlocal final_report
         if data["complete"]:
             final_report = data["final_report"]
-        print(f"Static Callback Update: {data}")
+        logger.debug(f"Static callback update: {data}")
 
     pipeline = TTD_DR_Pipeline(static_callback)
     pipeline.run(query)

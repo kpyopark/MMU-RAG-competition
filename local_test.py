@@ -63,7 +63,7 @@ class RAGSystemTester:
         try:
             payload = {"question": question}
             if not self.session:
-                raise RuntimeError("HTTP session not initialized")  
+                raise RuntimeError("HTTP session not initialized")
             async with self.session.post(
                 f"{self.base_url}/run",
                 json=payload,
