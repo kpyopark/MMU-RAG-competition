@@ -77,8 +77,8 @@ class RAGSystemTester:
 
                 # Check content type for streaming
                 content_type = response.headers.get("content-type", "")
-                if "text/plain" not in content_type:
-                    print(f"⚠️  Expected text/plain content-type, got: {content_type}")
+                if not ("text/plain" in content_type or "text/event-stream" in content_type):
+                    print(f"⚠️  Expected text/plain or text/event-stream content-type, got: {content_type}")
 
                 received_data = []
                 intermediate_steps_received = False
