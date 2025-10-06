@@ -2,7 +2,7 @@
 set -e
 
 echo "Starting SGLang..."
-uv run python3 -m sglang.launch_server \
+python -m sglang.launch_server \
   --model-path BAAI/bge-reranker-v2-m3 \
   --host 0.0.0.0 \
   --port 3001 \
@@ -23,7 +23,7 @@ fi
 
 
 echo "Starting SGLang llm..."
-uv run python3 -m sglang.launch_server \
+python -m sglang.launch_server \
     --model-path Qwen/Qwen3-4B-Instruct-2507 \
     --host 0.0.0.0 \
     --port 3002 & 

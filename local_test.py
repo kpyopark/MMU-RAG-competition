@@ -127,8 +127,8 @@ class RAGSystemTester:
                                 completion_received = True
                                 print("   ✅ Completion signal received")
 
-                        except json.JSONDecodeError:
-                            print(f"   ⚠️  Failed to parse JSON: {data_json[:100]}...")
+                        except json.JSONDecodeError as e:
+                            print(f"   ⚠️  Failed to parse JSON: {data_json[:100]}..., error: {e}")
                             continue
 
                 # Validate response completeness

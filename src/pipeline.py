@@ -98,6 +98,9 @@ Use all the provided information to construct a well-structured, coherent, and d
 **Full History of Questions and Synthesized Answers:**
 {history}
 
+**Citations:**
+{citations}
+
 Now, write the final, polished report. Start with a "Final Answer:" short paragraph summarizing the key findings, followed by detailed sections below and citations where relevant.
 """
 
@@ -109,6 +112,7 @@ class TTD_DR_Pipeline:
         self.draft = ""
         self.q_a_history: List[Dict[str, str]] = []
         self.intermediate_log: List[str] = []
+        self.citations: List[str] = []
 
     def _send_update(
         self,
@@ -184,6 +188,7 @@ class TTD_DR_Pipeline:
             [f"ID: {doc['chunk_id']}\nText: {doc['text']}..." for doc in chunks]
         )
         citations = [doc["url"] for doc in chunks if doc.get("url") is not None]
+        self.citations.extend(citations)
         self._send_update(
             f"**Found {len(chunks)} documents.** Synthesizing answer...",
             citations=citations if citations else None,
@@ -247,21 +252,22 @@ class TTD_DR_Pipeline:
                 if "query" in item
             ]
         )
+        citations_str = "\n".join(self.citations)
         final_prompt = FINAL_REPORT_PROMPT.format(
-            query=query, plan=self.plan, draft=self.draft, history=history_str
+            query=query,
+            plan=self.plan,
+            draft=self.draft,
+            history=history_str,
+            citations=citations_str,
         )
 
         final_report_content = get_llm_response(final_prompt)
-        self._send_update(
-            None,
-            is_intermediate=False,
-            final_report_chunk=final_report_content,
-            complete=False,
-        )
+
         self._send_update(
             "Final report generated.",
             is_intermediate=False,
             final_report_chunk=final_report_content,
+            citations=self.citations,
             complete=True,
         )
 
