@@ -2,6 +2,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from loguru import logger
+import torch
 
 load_dotenv()
 
@@ -20,19 +21,18 @@ def get_openrouter_client():
     )
 
 
-def get_sglang_client(port: int = 3002):
+def get_local_client(port: int = 3002):
     return OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="None")
 
 
-if os.getenv("OPENROUTER_API_KEY"):
+if not torch.cuda.is_available:
     client = get_openrouter_client()
+    OPENROUTER_MODEL = os.getenv(
+        "OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free"
+    )
 else:
-    client = get_sglang_client()
-
-# https://openrouter.ai/models?max_price=0
-OPENROUTER_MODEL = os.getenv(
-    "OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free"
-)
+    client = get_local_client()
+    OPENROUTER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 
 
 def get_llm_response(

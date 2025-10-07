@@ -6,18 +6,17 @@ from typing import List, Dict, Any
 from loguru import logger
 from .chunker import chunk_document
 
-# try:
 from vllm import LLM
 
+model_name = "BAAI/bge-reranker-v2-m3"
 model = LLM(
     model="tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
     task="score",
     # TODO: handle proper chunking
     max_model_len=1024,
     gpu_memory_utilization=0.1,
+    enforce_eager=True,
 )
-# except Exception as e:
-#     print(f"Couldn't creat vllm ranker {e}")
 
 
 def call_rerank_api(texts: List[str], port: int = 3001) -> List[Dict[str, Any]]:

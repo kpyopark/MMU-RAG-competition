@@ -77,8 +77,12 @@ class RAGSystemTester:
 
                 # Check content type for streaming
                 content_type = response.headers.get("content-type", "")
-                if not ("text/plain" in content_type or "text/event-stream" in content_type):
-                    print(f"⚠️  Expected text/plain or text/event-stream content-type, got: {content_type}")
+                if not (
+                    "text/plain" in content_type or "text/event-stream" in content_type
+                ):
+                    print(
+                        f"⚠️  Expected text/plain or text/event-stream content-type, got: {content_type}"
+                    )
 
                 received_data = []
                 intermediate_steps_received = False
@@ -128,7 +132,9 @@ class RAGSystemTester:
                                 print("   ✅ Completion signal received")
 
                         except json.JSONDecodeError as e:
-                            print(f"   ⚠️  Failed to parse JSON: {data_json[:100]}..., error: {e}")
+                            print(
+                                f"   ⚠️  Failed to parse JSON: {data_json[:100]}..., error: {e}"
+                            )
                             continue
 
                 # Validate response completeness
