@@ -1,30 +1,8 @@
 #!/bin/bash
 set -e
 
-echo "Starting SGLang..."
-python -m sglang.launch_server \
-  --model-path BAAI/bge-reranker-v2-m3 \
-  --host 0.0.0.0 \
-  --port 3001 \
-  --disable-radix-cache \
-  --chunked-prefill-size -1 \
-  --attention-backend triton \
-  --is-embedding &
-SGLANG_PID=$!
-
-
-sleep 20
-
-if ps -p $SGLANG_PID > /dev/null; then
-    echo "✅ SGLang started successfully (PID: $SGLANG_PID)"
-else
-    echo "⚠️  SGLang failed to start. Continuing with FastAPI anyway..."
-fi
-
-
-echo "Starting SGLang llm..."
-python -m sglang.launch_server \
-    --model-path Qwen/Qwen3-4B-Instruct-2507 \
+echo "Starting llm..."
+vllm serve Qwen/Qwen3-4B-Instruct-2507 --max-model-len 16k \
     --host 0.0.0.0 \
     --port 3002 & 
 SGLANG_LLM_PID=$!

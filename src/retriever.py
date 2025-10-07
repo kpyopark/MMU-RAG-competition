@@ -6,12 +6,24 @@ from typing import List, Dict, Any
 from loguru import logger
 from .chunker import chunk_document
 
+# try:
+from vllm import LLM
+
+model = LLM(
+    model="tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
+    task="score",
+    # TODO: handle proper chunking
+    max_model_len=1024,
+    gpu_memory_utilization=0.1,
+)
+# except Exception as e:
+#     print(f"Couldn't creat vllm ranker {e}")
+
 
 def call_rerank_api(texts: List[str], port: int = 3001) -> List[Dict[str, Any]]:
     url = f"http://127.0.0.1:{port}/v1/rerank"
 
     payload = {
-        # TODO: use qwen 3 model for better performance
         "model": "BAAI/bge-reranker-v2-m3",
         "query": "what is panda?",
         "documents": texts,
@@ -83,8 +95,11 @@ def retrieve(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
             chunks.extend(doc_chunks)
         texts = [chunk["text"] for chunk in chunks]
         try:
-            results = call_rerank_api(texts, port=3001)
-            idxs = [x["index"] for x in results]
+            # results = call_rerank_api(texts, port=3001)
+            # idxs = [x["index"] for x in results]
+            outputs = model.score(query, texts)
+            scores = [output.outputs.score for output in outputs]
+            idxs = sorted(range(len(scores)), key=lambda i: scores[i], reverse=False)
             reordered = [chunks[i] for i in idxs]
             return reordered[:top_k]
         except Exception as e:
