@@ -64,8 +64,23 @@ python local_test.py --base-url http://localhost:5053 \
 
 ### Submission
 
-AWS CLI Command for pushing to ECR repository:
+AWS CLI Command for pushing to ECR repository (as of <https://agi-lti.github.io/MMU-RAGent/full-submission/>):
+
+#### Sign in
 
 ```bash
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 970547356481.dkr.ecr.us-east-1.amazonaws.com
 ```
+
+#### Build the image
+
+`docker build --platform linux/amd64 -t my-app:latest .`
+
+
+#### Tag for ECR
+
+`docker tag my-app:latest 970547356481.dkr.ecr.us-east-1.amazonaws.com/my-app:latest`
+
+#### Push to ECR
+
+`docker push 970547356481.dkr.ecr.us-east-1.amazonaws.com/my-app:latest`

@@ -24,14 +24,15 @@ def get_sglang_client(port: int = 3002):
     return OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="None")
 
 
-client = get_openrouter_client()
-# client = get_sglang_client()
+if os.getenv("OPENROUTER_API_KEY"):
+    client = get_openrouter_client()
+else:
+    client = get_sglang_client()
 
 # https://openrouter.ai/models?max_price=0
 OPENROUTER_MODEL = os.getenv(
     "OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free"
 )
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
 
 
 def get_llm_response(

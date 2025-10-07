@@ -7,25 +7,6 @@ from loguru import logger
 from .chunker import chunk_document
 
 
-def launch_rerank_server():
-    from sglang.test.doc_patch import launch_server_cmd
-    from sglang.utils import wait_for_server
-
-    # This is equivalent to running the following command in your terminal
-    # python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --host 0.0.0.0
-    cmd = """python3 -m sglang.launch_server \
-  --model-path BAAI/bge-reranker-v2-m3 \
-  --host 0.0.0.0 \
-  --disable-radix-cache \
-  --chunked-prefill-size -1 \
-  --attention-backend triton \
-  --is-embedding"""
-    server_process, port = launch_server_cmd(cmd)
-
-    wait_for_server(f"http://localhost:{port}", timeout=120)
-    return server_process, port
-
-
 def call_rerank_api(texts: List[str], port: int = 3001) -> List[Dict[str, Any]]:
     url = f"http://127.0.0.1:{port}/v1/rerank"
 
