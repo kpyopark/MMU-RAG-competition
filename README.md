@@ -36,7 +36,7 @@ python local_test.py --base-url http://localhost:5053
 python local_test.py --base-url http://localhost:5053 --test-mode run
 
 # Test only static evaluation (/evaluate endpoint)
-python local_test.py --base-url http://localhost:5053 --test-mode evaluate
+uv run python local_test.py --base-url http://localhost:5053 --test-mode evaluate
 
 # Custom validation file
 python local_test.py --base-url http://localhost:5053 \
@@ -74,13 +74,13 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 
 #### Build the image
 
-`docker build --platform linux/amd64 -t my-app:latest .`
+`docker build --platform linux/amd64 -t ttt-dr:latest .`
 
 
 #### Tag for ECR
 
-`docker tag my-app:latest 970547356481.dkr.ecr.us-east-1.amazonaws.com/my-app:latest`
+`docker tag ttt-dr:latest 970547356481.dkr.ecr.us-east-1.amazonaws.com/ttt-dr:latest`
 
 #### Push to ECR
 
-`docker push 970547356481.dkr.ecr.us-east-1.amazonaws.com/my-app:latest`
+`docker push 970547356481.dkr.ecr.us-east-1.amazonaws.com/ttt-dr:latest`

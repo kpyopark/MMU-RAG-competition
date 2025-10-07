@@ -5,7 +5,13 @@ services:
 
     ports:
       - "5053:5053"
-
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     develop:
       # Create a `watch` configuration to update the app
       # https://docs.docker.com/compose/file-watch/#compose-watch-versus-bind-mounts
