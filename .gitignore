@@ -8,3 +8,4 @@ __pycache__
 logs
 build
 *.egg-info*
+nohup.out

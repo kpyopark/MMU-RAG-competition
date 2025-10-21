@@ -1,8 +1,12 @@
 services:
   web:
     # Build the image from the Dockerfile in the current directory
-    build: .
-
+    build: 
+      context: .
+      # cache_to:
+      #   - type=local,dest=/teamspace/studios/this_studio/dockercache
+      # cache_from:
+      #   - type=local,dest=/teamspace/studios/this_studio/dockercache
     ports:
       - "5053:5053"
     deploy:

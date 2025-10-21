@@ -4,10 +4,10 @@ from .generator import get_llm_response, self_evolve
 from loguru import logger
 
 
-NUM_VARIANTS = 2  # 2
+NUM_VARIANTS = 1  # 2
 EVOLUTION_STEPS = 1
-MAX_SEARCH_ITERATIONS = 3  # 3
-SEARCH_TOP_K = 10
+MAX_SEARCH_ITERATIONS = 1  # 3
+SEARCH_TOP_K = 50
 
 PLAN_PROMPT = """
 Based on the user's query, create a structured research plan.

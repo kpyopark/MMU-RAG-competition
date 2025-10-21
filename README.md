@@ -74,13 +74,23 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 
 #### Build the image
 
-`docker build --platform linux/amd64 -t ttt-dr:latest .`
+`docker build --platform linux/amd64 -t ttt-dr:latest --load .`
 
+#### Test the run
+
+```bash
+docker run -it --rm \
+  --gpus all \
+  -p 5053:5053 \
+  -v "$(pwd)":/app \
+  -w /app \
+  ttt-dr:latest
+```
 
 #### Tag for ECR
 
-`docker tag ttt-dr:latest 970547356481.dkr.ecr.us-east-1.amazonaws.com/ttt-dr:latest`
+`docker tag ttt-dr:latest 970547356481.dkr.ecr.us-east-1.amazonaws.com/neurips2025text/ttt-dr:latest`
 
 #### Push to ECR
 
-`docker push 970547356481.dkr.ecr.us-east-1.amazonaws.com/ttt-dr:latest`
+`docker push 970547356481.dkr.ecr.us-east-1.amazonaws.com/neurips2025text/ttt-dr:latest`

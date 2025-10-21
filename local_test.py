@@ -60,108 +60,106 @@ class RAGSystemTester:
         """
         print(f"\n📝 Testing /run endpoint with question: '{question}'")
 
-        try:
-            payload = {"question": question}
-            if not self.session:
-                raise RuntimeError("HTTP session not initialized")
-            async with self.session.post(
-                f"{self.base_url}/run",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            ) as response:
-                if response.status != 200:
-                    print(f"❌ /run endpoint failed with status {response.status}")
-                    error_body = await response.text()
-                    print(f"   Error response: {error_body}")
-                    return False
+        payload = {"question": question}
+        if not self.session:
+            raise RuntimeError("HTTP session not initialized")
+        async with self.session.post(
+            f"{self.base_url}/run",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        ) as response:
+            if response.status != 200:
+                print(f"❌ /run endpoint failed with status {response.status}")
+                error_body = await response.text()
+                print(f"   Error response: {error_body}")
+                return False
 
-                # Check content type for streaming
-                content_type = response.headers.get("content-type", "")
-                if not (
-                    "text/plain" in content_type or "text/event-stream" in content_type
-                ):
-                    print(
-                        f"⚠️  Expected text/plain or text/event-stream content-type, got: {content_type}"
-                    )
+            # Check content type for streaming
+            content_type = response.headers.get("content-type", "")
+            if not (
+                "text/plain" in content_type or "text/event-stream" in content_type
+            ):
+                print(
+                    f"⚠️  Expected text/plain or text/event-stream content-type, got: {content_type}"
+                )
 
-                received_data = []
-                intermediate_steps_received = False
-                final_report_received = False
-                citations_received = False
-                completion_received = False
+            received_data = []
+            intermediate_steps_received = False
+            final_report_received = False
+            citations_received = False
+            completion_received = False
 
-                # Read streaming response
-                intermediate_logged = False
-                final_logged = False
-                citations_logged = False
+            # Read streaming response
+            intermediate_logged = False
+            final_logged = False
+            citations_logged = False
 
-                async for line in response.content:
-                    line_text = line.decode("utf-8").strip()
+            async for line in response.content:
+                line_text = line.decode("utf-8").strip()
 
-                    if line_text.startswith("data: "):
-                        data_json = line_text[6:]  # Remove 'data: ' prefix
-                        try:
-                            data = json.loads(data_json)
-                            received_data.append(data)
+                if line_text.startswith("data: "):
+                    data_json = line_text[6:]  # Remove 'data: ' prefix
+                    try:
+                        data = json.loads(data_json)
+                        received_data.append(data)
 
-                            # Check for required fields (only log once per type)
-                            if "intermediate_steps" in data and not intermediate_logged:
-                                intermediate_steps_received = True
-                                if data.get("is_intermediate"):
-                                    print("   📋 Intermediate steps received")
-                                    intermediate_logged = True
+                        # Check for required fields
+                        if "intermediate_steps" in data:
+                            intermediate_steps_received = True
+                            if data.get("is_intermediate"):
+                                print("   📋 Intermediate steps received")
 
-                            if "final_report" in data and not final_logged:
-                                final_report_received = True
-                                if not data.get("is_intermediate", True):
-                                    print("   📄 Final report streaming started")
-                                    final_logged = True
+                        if "final_report" in data and not final_logged:
+                            final_report_received = True
+                            if not data.get("is_intermediate", True):
+                                print("   📄 Final report streaming started")
+                                final_logged = True
 
-                            if (
-                                "citations" in data
-                                and data["citations"]
-                                and not citations_logged
-                            ):
-                                print(
-                                    f"   🔗 Citations received: {len(data['citations'])} items"
-                                )
-                                citations_logged = True
-
-                            if data.get("complete"):
-                                completion_received = True
-                                print("   ✅ Completion signal received")
-
-                        except json.JSONDecodeError as e:
+                        if (
+                            "citations" in data
+                            and data["citations"]
+                            and not citations_logged
+                        ):
                             print(
-                                f"   ⚠️  Failed to parse JSON: {data_json[:100]}..., error: {e}"
+                                f"   🔗 Citations received: {len(data['citations'])} items"
                             )
-                            continue
+                            citations_logged = True
 
-                # Validate response completeness
-                success = True
-                if not intermediate_steps_received:
-                    print("   ❌ No intermediate_steps received")
-                    success = False
+                        if data.get("complete"):
+                            completion_received = True
+                            print("   ✅ Completion signal received")
 
-                if not final_report_received:
-                    print("   ❌ No final_report received")
-                    success = False
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"   ⚠️  Failed to parse JSON: {data_json[:100]}..., error: {e}"
+                        )
+                        continue
 
-                if not completion_received:
-                    print("   ❌ No completion signal received")
-                    success = False
+            # Validate response completeness
+            success = True
+            if not intermediate_steps_received:
+                print("   ❌ No intermediate_steps received")
+                success = False
 
-                if success:
-                    print("   ✅ /run endpoint test passed")
-                    print(f"   📊 Total messages received: {len(received_data)}")
-                else:
-                    print("   ❌ /run endpoint test failed - missing required fields")
+            if not final_report_received:
+                print("   ❌ No final_report received")
+                success = False
 
-                return success
+            if not completion_received:
+                print("   ❌ No completion signal received")
+                success = False
 
-        except Exception as e:
-            print(f"❌ /run endpoint test failed with error: {e}")
-            return False
+            if success:
+                print("   ✅ /run endpoint test passed")
+                print(f"   📊 Total messages received: {len(received_data)}")
+            else:
+                print("   ❌ /run endpoint test failed - missing required fields")
+
+            return success
+
+        # except Exception as e:
+        #     print(f"❌ /run endpoint test failed with error: {e}")
+        #     return False
 
     async def test_evaluate_endpoint(
         self, validation_data: List[Dict[str, Any]]
