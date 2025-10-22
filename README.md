@@ -82,7 +82,6 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 docker run -it --rm \
   --gpus all \
   -p 5053:5053 \
-  -v "$(pwd)":/app \
   -w /app \
   ttt-dr:latest
 ```

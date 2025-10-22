@@ -12,7 +12,6 @@ model_name = "BAAI/bge-reranker-v2-m3"
 model = LLM(
     model="tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
     task="score",
-    # TODO: handle proper chunking
     max_model_len=1024,
     gpu_memory_utilization=0.1,
     enforce_eager=True,
@@ -87,7 +86,9 @@ def retrieve_fineweb(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
 def retrieve(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     try:
+        logger.debug(f"searching q {query}")
         docs = retrieve_fineweb(query, top_k)
+        logger.debug(f"retrieved {docs[:2]}")
         chunks = []
         for doc in docs:
             doc_chunks = chunk_document(doc)
@@ -100,6 +101,7 @@ def retrieve(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
             scores = [output.outputs.score for output in outputs]
             idxs = sorted(range(len(scores)), key=lambda i: scores[i], reverse=False)
             reordered = [chunks[i] for i in idxs]
+            logger.debug(f"reordered {reordered[:2]}")
             return reordered[:top_k]
         except Exception as e:
             logger.error(f"Error calling rerank API: {e}")

@@ -20,14 +20,14 @@ from typing import Dict, Any, List, Optional
 
 
 class RAGSystemTester:
-    def __init__(self, base_url: str, timeout: int = 300):
+    def __init__(self, base_url: str, timeout: int = 600):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.timeout)
+            timeout=aiohttp.ClientTimeout(total=self.timeout, sock_read=600)
         )
         return self
 
@@ -417,8 +417,8 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=300,
-        help="Request timeout in seconds (default: 300)",
+        default=600,
+        help="Request timeout in seconds (default: 600)",
     )
 
     args = parser.parse_args()

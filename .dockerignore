@@ -43,6 +43,7 @@ requirements-test.txt
 
 # Environment files (will be mounted at runtime)
 .env.local
+.env
 .env.development
 
 # Node modules (if any)

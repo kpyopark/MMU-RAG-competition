@@ -1,5 +1,6 @@
 *.jsonl
 .env
+.env.local
 .venv
 __pycache__
 .ipynb_checkpoints

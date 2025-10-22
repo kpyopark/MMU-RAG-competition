@@ -47,7 +47,7 @@ Output only the search query, with no preamble.
 """
 
 ANSWER_SYNTHESIS_PROMPT = """
-You are a research analyst. You have been given a search query and a list of retrieved documents.
+You have been given a search query and a list of retrieved documents.
 Your task is to synthesize the information from these documents to provide a direct and comprehensive answer to the search query.
 Focus only on the information present in the documents. Cite which document urls are relevant.
 
@@ -184,6 +184,8 @@ class TTD_DR_Pipeline:
 
     def retrieve_and_synthesize_documents(self, search_query: str):
         chunks = retrieve(search_query, top_k=SEARCH_TOP_K)
+        chunks = chunks[:20]
+        # TODO: tune cutting chunks to fit context
         doc_str = "\n\n".join(
             [f"ID: {doc['chunk_id']}\nText: {doc['text']}..." for doc in chunks]
         )
