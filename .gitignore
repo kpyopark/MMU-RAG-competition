@@ -10,3 +10,5 @@ logs
 build
 *.egg-info*
 nohup.out
+neurips_2025.sty
+neurips_2025.tex

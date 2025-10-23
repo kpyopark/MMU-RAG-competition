@@ -1,9 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import boto3
 import logging
-import random
-import time
 from typing import List, Optional, TypedDict
 
 logging.basicConfig(

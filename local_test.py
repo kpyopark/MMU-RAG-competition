@@ -15,7 +15,6 @@ import sys
 import json
 import asyncio
 import aiohttp
-import time
 from typing import Dict, Any, List, Optional
 
 
@@ -86,11 +85,9 @@ class RAGSystemTester:
             received_data = []
             intermediate_steps_received = False
             final_report_received = False
-            citations_received = False
             completion_received = False
 
             # Read streaming response
-            intermediate_logged = False
             final_logged = False
             citations_logged = False
 
@@ -199,7 +196,6 @@ class RAGSystemTester:
                     "iid": iid,  # Use iid as specified in static_evaluation.md
                 }
 
-                start_time = time.time()
                 if not self.session:
                     raise RuntimeError("HTTP session not initialized")
                 async with self.session.post(
@@ -207,8 +203,6 @@ class RAGSystemTester:
                     json=payload,
                     headers={"Content-Type": "application/json"},
                 ) as response:
-                    duration = time.time() - start_time
-
                     if response.status != 200:
                         print(
                             f"   ❌ Sample {i + 1} failed with status {response.status}"
