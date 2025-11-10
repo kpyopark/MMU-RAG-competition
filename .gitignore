@@ -1,6 +1,11 @@
 *.jsonl
 .env
 .env.local
+
+# Ignore all dot directories
+.*/
+
+# Specific dot files/directories (redundant but kept for clarity)
 .venv
 __pycache__
 .ipynb_checkpoints
@@ -12,3 +17,4 @@ build
 nohup.out
 neurips_2025.sty
 neurips_2025.tex
+specs

@@ -1,52 +1,46 @@
+"""
+LLM client wrapper using GeminiClient for all operations.
+
+This module provides backward-compatible functions that now use the Gemini API
+instead of vLLM/OpenRouter. The function signatures remain the same to avoid
+breaking existing pipeline code.
+"""
+
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
 from loguru import logger
-import torch
+
+from .gemini_client import GeminiClient
 
 load_dotenv()
 
-
-def get_openrouter_client():
-    headers = {}
-    if os.getenv("HTTP_REFERER"):
-        headers["HTTP-Referer"] = os.getenv("HTTP_REFERER")
-    if os.getenv("X_TITLE"):
-        headers["X-Title"] = os.getenv("X_TITLE")
-
-    return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-        default_headers=headers if headers else None,
-    )
-
-
-def get_local_client(port: int = 3002):
-    return OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="None")
-
-
-if not torch.cuda.is_available:
-    client = get_openrouter_client()
-    OPENROUTER_MODEL = os.getenv(
-        "OPENROUTER_MODEL", "alibaba/tongyi-deepresearch-30b-a3b:free"
-    )
-else:
-    client = get_local_client()
-    OPENROUTER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+# Initialize Gemini client (single source of truth)
+client = GeminiClient(
+    api_key=os.getenv("GEMINI_API_KEY"),
+    model=os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+)
 
 
 def get_llm_response(
     prompt: str, system_prompt: str = "You are a world-class research assistant."
 ) -> str:
-    resp = client.chat.completions.create(
-        model=OPENROUTER_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
+    """
+    Generate LLM response using Gemini API.
+
+    This function maintains backward compatibility with the original OpenAI-style
+    interface while using the new GeminiClient under the hood.
+
+    Args:
+        prompt: User prompt
+        system_prompt: System instruction
+
+    Returns:
+        Generated text content
+    """
+    content = client.complete(
+        prompt=prompt,
+        system_prompt=system_prompt,
     )
-    content = resp.choices[0].message.content
-    content = content if content else ""
     logger.debug(f"Prompt[:200]: {prompt[:200]}\nResponse[:200]: {content[:200]}")
     return content
 

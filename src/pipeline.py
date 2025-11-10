@@ -1,5 +1,5 @@
 from typing import Callable, Dict, Any, List
-from .retriever import retrieve
+from .retriever import retrieve, retrieve_with_grounded_generation
 from .generator import get_llm_response, self_evolve
 from loguru import logger
 
@@ -183,40 +183,56 @@ class TTD_DR_Pipeline:
         return search_query
 
     def retrieve_and_synthesize_documents(self, search_query: str):
-        chunks = retrieve(search_query, top_k=SEARCH_TOP_K)
-        chunks = chunks[:20]
-        # TODO: tune cutting chunks to fit context
-        doc_str = "\n\n".join(
-            [f"ID: {doc['chunk_id']}\nText: {doc['text']}..." for doc in chunks]
-        )
-        citations = [doc["url"] for doc in chunks if doc.get("url") is not None]
-        self.citations.extend(citations)
-        self._send_update(
-            f"**Found {len(chunks)} documents.** Synthesizing answer...",
-            citations=citations if citations else None,
-        )
+        """
+        Retrieve and synthesize using Gemini's grounded generation.
 
-        synth_prompt = ANSWER_SYNTHESIS_PROMPT.format(
-            search_query=search_query, documents=doc_str
-        )
-        # TODO: log variants and use citations
-        synthesized_answer, variants = self_evolve(
-            synth_prompt,
-            "You are a research analyst.",
-            num_variants=NUM_VARIANTS,
-            evolution_steps=EVOLUTION_STEPS,
-        )
-        self.q_a_history.append(
-            {
-                "description": f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}",
-                "query": search_query,
-                "answer": synthesized_answer,
-            }
-        )
-        self._send_update(
-            f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}"
-        )
-        return synthesized_answer
+        This replaces the old Search → Chunk → Rerank → Synthesize pipeline
+        with a single Gemini API call that automatically:
+        - Searches Google for relevant information
+        - Generates comprehensive answer
+        - Returns citations
+        """
+        self._send_update("Searching web and synthesizing answer with Gemini grounded generation...")
+
+        try:
+            # Use Gemini's grounded generation (single API call)
+            synthesized_answer, citations_list = retrieve_with_grounded_generation(
+                query=search_query,
+                context_prompt=f"""You are researching to answer this query: {search_query}
+
+Provide a comprehensive, well-researched answer based on current web information.
+Focus on specific facts, data, and details from authoritative sources."""
+            )
+
+            # Extract citation URLs
+            citations = [cit["url"] for cit in citations_list]
+            self.citations.extend(citations)
+
+            self._send_update(
+                f"**Grounded generation complete:** {len(citations)} sources used. Synthesizing answer...",
+                citations=citations if citations else None,
+            )
+
+            # Add to Q&A history
+            self.q_a_history.append(
+                {
+                    "description": f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}",
+                    "query": search_query,
+                    "answer": synthesized_answer,
+                }
+            )
+            self._send_update(
+                f"**Synthesized Answer for `{search_query}`:**\n{synthesized_answer}"
+            )
+
+            return synthesized_answer
+
+        except Exception as e:
+            logger.error(f"Error in grounded generation: {e}")
+            # Fallback: return error message but don't crash the pipeline
+            error_msg = f"Unable to retrieve web information for this query: {str(e)}"
+            self._send_update(f"**Warning:** {error_msg}")
+            return error_msg
 
     def revise_draft_with_new_info(
         self, query: str, search_query: str, synthesized_answer: str, iteration: int
