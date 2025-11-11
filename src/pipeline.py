@@ -167,6 +167,16 @@ class TTD_DR_Pipeline:
         """Generate next search query for the current iteration."""
         step_desc = f"**Iteration {iteration + 1}/{max_iterations}:** Generating next search query..."
         self._send_update(step_desc)
+
+        # QUICK FIX: For first iteration, use the original user query directly
+        # This avoids LLM bias from an incorrect initial draft
+        # See INTEGRATION_REPORT.md for root cause analysis
+        if iteration == 0:
+            search_query = query
+            self._send_update(f"**Searching for (direct query):** `{search_query}`")
+            return search_query
+
+        # For subsequent iterations, use LLM to generate targeted queries
         history_str = "\n".join(
             [
                 f"Q: {item['query']}\nA: {item['answer']}"
@@ -179,7 +189,7 @@ class TTD_DR_Pipeline:
         )
         # TODO: try to generate several queries and rank the results to save tokens
         search_query = get_llm_response(search_gen_prompt)
-        self._send_update(f"**Searching for:** `{search_query}`")
+        self._send_update(f"**Searching for (generated query):** `{search_query}`")
         return search_query
 
     def retrieve_and_synthesize_documents(self, search_query: str):
