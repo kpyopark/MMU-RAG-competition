@@ -43,6 +43,10 @@ uv run python scripts/test_integration.py        # Integration tests
 
 # API compliance testing
 uv run python local_test.py --base-url http://localhost:5053
+
+# Testing Python syntax/code
+uv run python -m py_compile src/file.py          # ALWAYS use uv for Python tests
+uv run python scripts/test_script.py             # Execute scripts in uv environment
 ```
 
 ## Critical Lessons Learned

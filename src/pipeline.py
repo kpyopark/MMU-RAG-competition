@@ -1,6 +1,12 @@
 from typing import Callable, Dict, Any, List
 from .retriever import retrieve, retrieve_with_grounded_generation
 from .generator import get_llm_response, self_evolve
+from .structure_generator import ReportStructureGenerator
+from .context_manager import ContextManager
+from .section_generator import SectionGenerator
+from .quality_validator import QualityValidator
+from .report_assembler import ReportAssembler
+from .report_structure import GeneratedSection, ReportStructure
 from loguru import logger
 
 
@@ -8,6 +14,9 @@ NUM_VARIANTS = 1  # 2
 EVOLUTION_STEPS = 1
 MAX_SEARCH_ITERATIONS = 1  # 3
 SEARCH_TOP_K = 50
+
+# Feature flag for structured report generation
+ENABLE_STRUCTURED_REPORTS = True
 
 PLAN_PROMPT = """
 Based on the user's query, create a structured research plan.
@@ -106,13 +115,26 @@ Now, write the final, polished report. Start with a "Final Answer:" short paragr
 
 
 class TTD_DR_Pipeline:
-    def __init__(self, callback: Callable[[Dict[str, Any]], None]):
+    def __init__(self, callback: Callable[[Dict[str, Any]], None], enable_structured: bool = ENABLE_STRUCTURED_REPORTS):
         self.callback = callback
         self.plan = ""
         self.draft = ""
         self.q_a_history: List[Dict[str, str]] = []
         self.intermediate_log: List[str] = []
         self.citations: List[str] = []
+
+        # Structured report generation components
+        self.enable_structured = enable_structured
+        self.report_structure: ReportStructure | None = None
+        self.generated_sections: List[GeneratedSection] = []
+
+        if self.enable_structured:
+            self.structure_generator = ReportStructureGenerator()
+            self.context_manager = ContextManager()
+            self.section_generator = SectionGenerator()
+            self.quality_validator = QualityValidator()
+            self.report_assembler = ReportAssembler()
+            logger.info("Structured report generation ENABLED")
 
     def _send_update(
         self,
@@ -299,11 +321,182 @@ Focus on specific facts, data, and details from authoritative sources."""
             complete=True,
         )
 
+    def generate_report_structure(self, query: str):
+        """Generate comprehensive report structure from research context."""
+        if not self.enable_structured:
+            return
+
+        self._send_update("Generating comprehensive report structure...")
+
+        # Prepare research summary from Q&A history
+        research_summary = "\n".join(
+            [
+                f"Q: {item['query']}\nA: {item['answer'][:200]}..."
+                for item in self.q_a_history
+                if "query" in item
+            ]
+        )
+
+        # Generate structure
+        self.report_structure = self.structure_generator.generate_chapter_outline(
+            query=query, plan=self.plan, research_summary=research_summary
+        )
+
+        # Send structure update
+        structure_desc = (
+            f"**Report Structure Generated:**\n"
+            f"- {self.report_structure.total_sections()} total sections\n"
+            f"- {len(self.report_structure.chapters)} chapters\n"
+            f"- ~{self.report_structure.estimated_word_count} target words"
+        )
+        self._send_update(structure_desc)
+
+    def generate_structured_report(self, query: str):
+        """Generate report through iterative section-by-section synthesis."""
+        if not self.enable_structured or not self.report_structure:
+            # Fallback to legacy single-pass generation
+            self.generate_final_report(query)
+            return
+
+        self._send_update("Starting structured report generation...")
+
+        # Prepare research data for sections
+        research_data = self._prepare_research_data()
+
+        # 1. Generate executive summary
+        exec_summary = self.section_generator.generate_executive_summary(
+            self.report_structure, query, research_data
+        )
+        self.generated_sections.append(exec_summary)
+        self._send_update(
+            f"Executive Summary generated ({exec_summary.word_count} words)"
+        )
+
+        # 2. Iterative section generation
+        total_main_sections = sum(
+            len(ch.sections) for ch in self.report_structure.chapters
+        )
+        current_section = 0
+
+        for chapter in self.report_structure.chapters:
+            self._send_update(f"Starting Chapter {chapter.chapter_number}: {chapter.title}")
+
+            for section_spec in chapter.sections:
+                current_section += 1
+                progress = f"Section {current_section}/{total_main_sections}"
+
+                # Generate section with validation
+                section = self._generate_section_with_validation(
+                    section_spec, research_data, progress
+                )
+
+                # Compress to summary for context
+                section.summary = self.context_manager.compress_section_to_summary(
+                    section
+                )
+                self.generated_sections.append(section)
+
+                self._send_update(
+                    f"Completed {progress}: {section.spec.title} "
+                    f"({section.word_count} words, {len(section.citations_used)} citations)"
+                )
+
+        # 3. Generate conclusion
+        conclusion = self.section_generator.generate_conclusion(
+            self.report_structure, self.generated_sections, query
+        )
+        self.generated_sections.append(conclusion)
+        self._send_update(f"Conclusion generated ({conclusion.word_count} words)")
+
+        # 4. Assemble final report
+        self._send_update("Assembling final report...")
+        final_report = self.report_assembler.assemble_final_report(
+            self.report_structure, self.generated_sections
+        )
+
+        # Send final report
+        self._send_update(
+            "Structured report generation complete.",
+            is_intermediate=False,
+            final_report_chunk=final_report,
+            citations=self.citations,
+            complete=True,
+        )
+
+    def _prepare_research_data(self) -> str:
+        """Prepare research findings for section generation."""
+        research_parts = []
+
+        for item in self.q_a_history:
+            if "query" in item:
+                research_parts.append(
+                    f"**Research Query:** {item['query']}\n"
+                    f"**Findings:** {item['answer']}\n"
+                )
+
+        return "\n".join(research_parts)
+
+    def _generate_section_with_validation(
+        self, section_spec, research_data: str, progress: str
+    ) -> GeneratedSection:
+        """Generate section with quality validation and regeneration."""
+        max_attempts = 2
+        attempt = 1
+
+        while attempt <= max_attempts:
+            # Build context
+            context = self.context_manager.build_generation_context(
+                self.generated_sections, research_data
+            )
+
+            # Generate section
+            regeneration_guidance = ""
+            if attempt > 1:
+                self._send_update(
+                    f"{progress}: Regenerating (attempt {attempt}/{max_attempts})..."
+                )
+
+            section = self.section_generator.generate_section(
+                spec=section_spec,
+                context_summary=context,
+                research_data=research_data,
+                regeneration_guidance=regeneration_guidance,
+            )
+
+            # Validate
+            validation_result = self.quality_validator.validate_section(
+                section, self.generated_sections, attempt
+            )
+
+            should_regen, guidance = self.quality_validator.should_regenerate(
+                validation_result, attempt, max_attempts
+            )
+
+            if not should_regen:
+                # Validation passed or max attempts reached
+                if not validation_result.is_valid:
+                    self._send_update(
+                        f"⚠️ {progress}: Quality issues detected but proceeding (max attempts reached)"
+                    )
+                return section
+
+            # Regeneration needed
+            regeneration_guidance = guidance
+            attempt += 1
+
+        return section
+
     def run(self, query: str, max_iterations: int = MAX_SEARCH_ITERATIONS):
         self.generate_research_plan(query)
         self.generate_initial_draft(query)
         self.perform_iterative_search_and_synthesis(query, max_iterations)
-        self.generate_final_report(query)
+
+        # Choose report generation mode
+        if self.enable_structured:
+            self.generate_report_structure(query)
+            self.generate_structured_report(query)
+        else:
+            self.generate_final_report(query)
 
 
 def run_rag_dynamic(query: str, callback: Callable[[Dict[str, Any]], None]):
