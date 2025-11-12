@@ -108,9 +108,35 @@ class GeminiClient:
 
         logger.info(f"Initialized GeminiClient with model: {model}")
 
+    def _parse_retry_after(self, error_str: str) -> Optional[float]:
+        """
+        Extract retry-after duration from error message.
+
+        Args:
+            error_str: Error message string
+
+        Returns:
+            Retry-after duration in seconds, or None if not found
+
+        Example error message:
+            "Please retry in 44.025501755s."
+        """
+        # Pattern: "retry in X.Xs" or "retry in Xs"
+        match = re.search(r'retry in (\d+(?:\.\d+)?)\s*s', error_str, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                return None
+        return None
+
     def _retry_with_backoff(self, func, operation_name: str):
         """
         Execute function with exponential backoff retry.
+
+        Handles two types of errors:
+        - Rate limits (429): Uses API-provided retry-after value + 5s buffer
+        - Transient errors (503, timeout): Uses exponential backoff (1s, 2s, 4s)
 
         Args:
             func: Function to execute
@@ -120,8 +146,9 @@ class GeminiClient:
             Function result
 
         Raises:
-            RuntimeError: After max retries exhausted with clear error message
+            RuntimeError: After max retries exhausted - pipeline will exit
         """
+        RATE_LIMIT_BUFFER = 5.0  # Extra seconds to add to API retry-after
         last_exception = None
 
         for attempt in range(self.max_retries):
@@ -132,37 +159,72 @@ class GeminiClient:
                 error_str = str(e)
 
                 # Check if retryable error
-                is_retryable = any(
-                    keyword in error_str
-                    for keyword in ["429", "RESOURCE_EXHAUSTED", "timeout", "503"]
+                is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                is_transient = any(
+                    keyword in error_str for keyword in ["timeout", "503", "502"]
                 )
+                is_retryable = is_rate_limit or is_transient
 
                 if is_retryable and attempt < self.max_retries - 1:
-                    delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
-                    logger.warning(
-                        f"{operation_name} failed (attempt {attempt + 1}/{self.max_retries}): {error_str}. "
-                        f"Retrying in {delay}s..."
-                    )
+                    # For rate limits, parse retry-after and add buffer
+                    if is_rate_limit:
+                        retry_after = self._parse_retry_after(error_str)
+                        if retry_after:
+                            delay = retry_after + RATE_LIMIT_BUFFER
+                            logger.warning(
+                                f"{operation_name} rate limited (attempt {attempt + 1}/{self.max_retries}). "
+                                f"API requests retry after {retry_after:.1f}s + {RATE_LIMIT_BUFFER}s buffer = {delay:.1f}s. Waiting..."
+                            )
+                        else:
+                            # Default rate limit delay (60s + buffer) if parsing fails
+                            delay = 60.0 + RATE_LIMIT_BUFFER
+                            logger.warning(
+                                f"{operation_name} rate limited (attempt {attempt + 1}/{self.max_retries}). "
+                                f"Using default delay of {delay}s (60s + {RATE_LIMIT_BUFFER}s buffer)..."
+                            )
+                    else:
+                        # Exponential backoff for transient errors
+                        delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
+                        logger.warning(
+                            f"{operation_name} failed (attempt {attempt + 1}/{self.max_retries}): {error_str}. "
+                            f"Retrying in {delay}s..."
+                        )
+
                     time.sleep(delay)
                     continue
 
-                # Non-retryable error or max retries reached
+                # Non-retryable error or max retries reached - EXIT PIPELINE
                 logger.error(
                     f"{operation_name} failed after {attempt + 1} attempts: {error_str}"
                 )
-                raise RuntimeError(
-                    f"Gemini API {operation_name} failed: {error_str}\n"
-                    f"Attempts: {attempt + 1}/{self.max_retries}\n"
-                    f"Please check:\n"
-                    f"1. API key is valid\n"
-                    f"2. Rate limits not exceeded\n"
-                    f"3. Network connectivity\n"
-                    f"4. Gemini API status: https://status.cloud.google.com/"
-                ) from e
+                logger.error("Max retries exhausted. Pipeline will exit.")
+
+                # Provide specific guidance for rate limit errors
+                if is_rate_limit:
+                    raise RuntimeError(
+                        f"Gemini API rate limit exceeded for {operation_name}\n"
+                        f"Error: {error_str}\n"
+                        f"Attempts: {attempt + 1}/{self.max_retries}\n"
+                        f"Pipeline exiting. Please:\n"
+                        f"1. Check quota usage: https://ai.dev/usage?tab=rate-limit\n"
+                        f"2. Upgrade plan if needed: https://ai.google.dev/pricing\n"
+                        f"3. Reduce request frequency or batch operations\n"
+                        f"4. Wait for quota reset (free tier: 250 requests/day)"
+                    ) from e
+                else:
+                    raise RuntimeError(
+                        f"Gemini API {operation_name} failed: {error_str}\n"
+                        f"Attempts: {attempt + 1}/{self.max_retries}\n"
+                        f"Pipeline exiting. Please check:\n"
+                        f"1. API key is valid\n"
+                        f"2. Network connectivity\n"
+                        f"3. Gemini API status: https://status.cloud.google.com/"
+                    ) from e
 
         # Should never reach here, but just in case
+        logger.error(f"Max retries ({self.max_retries}) exhausted. Pipeline exiting.")
         raise RuntimeError(
-            f"Gemini API {operation_name} failed after {self.max_retries} retries"
+            f"Gemini API {operation_name} failed after {self.max_retries} retries. Pipeline terminated."
         ) from last_exception
 
     def complete(
