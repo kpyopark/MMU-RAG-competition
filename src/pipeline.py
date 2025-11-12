@@ -10,9 +10,9 @@ from .report_structure import GeneratedSection, ReportStructure
 from loguru import logger
 
 
-NUM_VARIANTS = 1  # 2
-EVOLUTION_STEPS = 1
-MAX_SEARCH_ITERATIONS = 1  # 3
+NUM_VARIANTS = 2
+EVOLUTION_STEPS = 20
+MAX_SEARCH_ITERATIONS = 2
 SEARCH_TOP_K = 50
 
 # Feature flag for structured report generation
