@@ -222,6 +222,41 @@ All stages now use Gemini API (LLM + Search + Reranking).
 - Maintain SSE callback contract (streaming depends on it)
 - Test with real API before committing changes
 
+## Git Commit Guidelines
+
+**Commit Message Format**:
+- Use clear, descriptive commit messages
+- Start with a concise summary line (50-72 characters)
+- Use bullet points for detailed changes
+- Reference issue/feature numbers when applicable
+
+**DO NOT Include**:
+- ❌ `Co-Authored-By: Claude <noreply@anthropic.com>` footer
+- ❌ `🤖 Generated with [Claude Code]` attribution
+- ❌ Any AI assistant attribution in commit messages
+
+**Example - Correct Format**:
+```bash
+git commit -m "Update README.md with latest features and comprehensive testing guide
+
+- Document Gemini integration (Feature 001)
+- Document structured report generation (Feature 002)
+- Add comprehensive testing methods (4 different approaches)
+- Update configuration setup with GEMINI_API_KEY"
+```
+
+**Example - Incorrect Format**:
+```bash
+# ❌ DO NOT DO THIS
+git commit -m "Update README.md
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+**Rationale**: Commit history should reflect repository changes, not tooling attribution. Keep commits professional and focused on technical content.
+
 ## File Organization
 
 ```
